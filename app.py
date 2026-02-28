@@ -11,11 +11,12 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.prebuilt import create_react_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.checkpoint.redis import RedisSaver
 
 from pg_logger import PGLogger
 from hil_store import HILStore
 from hil_tool_wrapper import HILToolWrapper
-from redis_saver import RedisSaver
+
 # FastAPI Application Initialization
 
 app = FastAPI(title="Agent-Oriented ReAct Service")
@@ -46,7 +47,9 @@ BASE_TOOLS = asyncio.get_event_loop().run_until_complete(
 
 postgres_logger = PGLogger()
 hil_store = HILStore()
-redis_saver = RedisSaver()
+redis_saver = RedisSaver.from_conn_string(
+    os.getenv("REDIS_URL", "redis://localhost:6379")
+)
 
 SYSTEM_PROMPT = SystemMessage(
     content="You are an AI assistant capable of using external tools such as maps and weather services when necessary."
