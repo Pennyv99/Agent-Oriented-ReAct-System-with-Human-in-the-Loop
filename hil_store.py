@@ -1,4 +1,3 @@
-# hil_store.py
 import os
 import json
 import hashlib
@@ -25,13 +24,29 @@ class HILStore:
     def _pending_key(self, pending_id: str) -> str:
         return f"hil:pending:{pending_id}"
 
+    # NEW: index to deduplicate pending by (session, tool, args_hash)
+    def _pending_index_key(self, session_id: str, tool_name: str, args_hash: str) -> str:
+        return f"hil:pending_index:{session_id}:{tool_name}:{args_hash}"
+
     def is_allowed(self, session_id: str, tool_name: str, args: Dict[str, Any]) -> bool:
         h = self._args_hash(args)
         return self.r.get(self._allow_key(session_id, tool_name, h)) == "1"
 
     def create_pending(self, session_id: str, tool_name: str, args: Dict[str, Any]) -> str:
-        pending_id = str(uuid.uuid4())
+        """
+        Deduplicate: same (session_id, tool_name, args_hash) -> same pending_id (within TTL).
+        """
         h = self._args_hash(args)
+
+        index_key = self._pending_index_key(session_id, tool_name, h)
+        existing = self.r.get(index_key)
+        if existing:
+            # If the payload already expired but index exists (rare), recreate payload
+            if self.r.get(self._pending_key(existing)):
+                return existing
+
+        pending_id = str(uuid.uuid4())
+
         payload = {
             "pending_id": pending_id,
             "session_id": session_id,
@@ -40,8 +55,13 @@ class HILStore:
             "args_hash": h,
             "status": "PENDING",
         }
+
         self.r.set(self._pending_key(pending_id), json.dumps(payload, ensure_ascii=False))
         self.r.expire(self._pending_key(pending_id), 3600)
+
+        self.r.set(index_key, pending_id)
+        self.r.expire(index_key, 3600)
+
         return pending_id
 
     def get_pending(self, pending_id: str) -> Optional[Dict[str, Any]]:
@@ -52,6 +72,7 @@ class HILStore:
         p = self.get_pending(pending_id)
         if not p:
             return False
+
         allow_key = self._allow_key(p["session_id"], p["tool_name"], p["args_hash"])
         self.r.set(allow_key, "1")
         self.r.expire(allow_key, ttl_seconds)
@@ -60,4 +81,10 @@ class HILStore:
         p["status"] = "APPROVED"
         self.r.set(self._pending_key(pending_id), json.dumps(p, ensure_ascii=False))
         self.r.expire(self._pending_key(pending_id), 3600)
+
+        # (Optional) keep the pending_index until it expires naturally.
+        # If you want: delete index after approval, uncomment:
+        # index_key = self._pending_index_key(p["session_id"], p["tool_name"], p["args_hash"])
+        # self.r.delete(index_key)
+
         return True
