@@ -23,19 +23,21 @@ class HILToolWrapper(BaseTool):
             name=getattr(inner_tool, "name", "unknown_tool"),
             description=getattr(inner_tool, "description", ""),
             args_schema=getattr(inner_tool, "args_schema", None),
+            hil=hil,
+            session_id=session_id,
+            inner_tool=inner_tool,
+            controlled=controlled,
         )
-        self.inner_tool = inner_tool
-        self.hil = hil
-        self.session_id = session_id
-        self.controlled = controlled
 
     def _run(self, *args: Any, **kwargs: Any) -> str:
         raise NotImplementedError("Use async")
 
     async def _arun(self, **kwargs: Any) -> Any:
+        print("HIL WRAPPER EXECUTED")
         tool_name = self.name
         tool_args: Dict[str, Any] = kwargs or {}
-
+        print("ARGS:", tool_args)
+        print("ALLOWED:", self.hil.is_allowed(self.session_id, tool_name, tool_args))
         # Gate
         if self.controlled and not self.hil.is_allowed(self.session_id, tool_name, tool_args):
             pending_id = self.hil.create_pending(self.session_id, tool_name, tool_args)

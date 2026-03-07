@@ -11,7 +11,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.prebuilt import create_react_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis import AsyncRedisSaver
 
 from pg_logger import PGLogger
 from hil_store import HILStore
@@ -19,12 +19,11 @@ from hil_tool_wrapper import HILToolWrapper, HIL_PENDING_PREFIX
 
 
 app = FastAPI(title="Agent-Oriented ReAct Service")
-
+print("API KEY:", os.getenv("LLM_API_KEY"))
 # LLM Initialization
 llm = init_chat_model(
-    model=os.getenv("LLM_MODEL", "openai:deepseek-v3"),
+    model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
     temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
-    base_url=os.getenv("LLM_BASE_URL"),
     api_key=os.getenv("LLM_API_KEY"),
 )
 
@@ -35,17 +34,23 @@ mcp_client = MultiServerMCPClient({
         "transport": "sse",
     }
 })
-
-BASE_TOOLS = asyncio.get_event_loop().run_until_complete(
-    mcp_client.get_tools()
-)
+global redis_saver
+BASE_TOOLS = []
+@app.on_event("startup")
+async def load_tools():
+    global BASE_TOOLS, redis_saver
+    BASE_TOOLS = await mcp_client.get_tools()
+    redis_saver_cm = AsyncRedisSaver.from_conn_string(
+        os.getenv("REDIS_URL", "redis://localhost:6379")
+    )
+    redis_saver = await redis_saver_cm.__aenter__()
+# BASE_TOOLS = asyncio.get_event_loop().run_until_complete(
+#     mcp_client.get_tools()
+# )
 
 # Infrastructure
 postgres_logger = PGLogger()
 hil_store = HILStore()
-redis_saver = RedisSaver.from_conn_string(
-    os.getenv("REDIS_URL", "redis://localhost:6379")
-)
 
 # Strengthen system prompt so the model won't "try another args"
 SYSTEM_PROMPT = SystemMessage(
@@ -74,15 +79,16 @@ def _extract_hil_pending_from_messages(messages) -> dict | None:
     We do NOT rely on the model to behave perfectly; we detect it ourselves.
     """
     for m in reversed(messages):
-        content = getattr(m, "content", None)
-        if isinstance(content, str) and content.startswith(HIL_PENDING_PREFIX):
-            raw = content[len(HIL_PENDING_PREFIX):]
-            try:
+        for m in reversed(messages):
+            content = getattr(m, "content", None)
+
+            if isinstance(content, str) and content.startswith(HIL_PENDING_PREFIX):
+                raw = content[len(HIL_PENDING_PREFIX):]
                 return json.loads(raw)
-            except Exception:
-                # If parsing fails, still return something usable
-                return {"pending_id": None, "status": "PENDING", "raw": content}
-    return None
+            if getattr(m, "type", None) == "tool":
+                break
+
+        return None
 
 
 # Agent Factory (per session)
@@ -124,6 +130,7 @@ async def chat(request: ChatRequest):
 
     # 1) If any tool emitted a pending marker, return a structured response
     pending = _extract_hil_pending_from_messages(result.get("messages", []))
+    print("pending:",pending)
     if pending:
         # Optional: log pending response as well (helps audit)
         postgres_logger.log_chat(
@@ -185,7 +192,7 @@ async def resume_after_approval(request: ApprovalRequest):
 
     session_id = pending["session_id"]
     agent = build_agent_for_session(session_id)
-
+    print(approved)
     config = {
         "configurable": {
             "thread_id": session_id
@@ -197,18 +204,20 @@ async def resume_after_approval(request: ApprovalRequest):
         {"messages": []},
         config=config,
     )
-
-    # If it still hits another pending (e.g., another tool in the plan), return it
-    next_pending = _extract_hil_pending_from_messages(result.get("messages", []))
-    if next_pending:
-        return {
-            "session_id": session_id,
-            "status": "PENDING",
-            **next_pending,
-        }
-
     final_response = result["messages"][-1].content
-
+    print(final_response)
+    # # If it still hits another pending (e.g., another tool in the plan), return it
+    # next_pending = _extract_hil_pending_from_messages(result.get("messages", []))
+    # print(next_pending)
+    # if next_pending:
+    #     return {
+    #         "session_id": session_id,
+    #         "status": "PENDING",
+    #         **next_pending,
+    #     }
+    #
+    # final_response = result["messages"][-1].content
+    # print(final_response)
     postgres_logger.log_chat(
         session_id=session_id,
         user_message=f"[HIL_RESUME] pending_id={request.pending_id}",
