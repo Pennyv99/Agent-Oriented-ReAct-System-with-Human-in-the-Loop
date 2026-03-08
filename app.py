@@ -1,240 +1,154 @@
-from dotenv import load_dotenv
-load_dotenv()
-
 import os
-import asyncio
-import json
 from fastapi import FastAPI
 from pydantic import BaseModel
-
+from dotenv import load_dotenv
+load_dotenv()
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
-from langgraph.prebuilt import create_react_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# 🚨 引入官方最核心的原语
+from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langgraph.types import Command
 from langgraph.checkpoint.redis import AsyncRedisSaver
 
 from pg_logger import PGLogger
-from hil_store import HILStore
-from hil_tool_wrapper import HILToolWrapper, HIL_PENDING_PREFIX
 
-
-app = FastAPI(title="Agent-Oriented ReAct Service")
+app = FastAPI(title="Agent-Oriented ReAct Service (Official HIL)")
 print("API KEY:", os.getenv("LLM_API_KEY"))
-# LLM Initialization
+# 初始化基础设施
 llm = init_chat_model(
     model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
     temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
     api_key=os.getenv("LLM_API_KEY"),
 )
-
-# MCP Tool Loading (once)
-mcp_client = MultiServerMCPClient({
-    "amap": {
-        "url": os.getenv("AMAP_MCP_URL"),
-        "transport": "sse",
-    }
-})
-global redis_saver
-BASE_TOOLS = []
-@app.on_event("startup")
-async def load_tools():
-    global BASE_TOOLS, redis_saver
-    BASE_TOOLS = await mcp_client.get_tools()
-    redis_saver_cm = AsyncRedisSaver.from_conn_string(
-        os.getenv("REDIS_URL", "redis://localhost:6379")
-    )
-    redis_saver = await redis_saver_cm.__aenter__()
-# BASE_TOOLS = asyncio.get_event_loop().run_until_complete(
-#     mcp_client.get_tools()
-# )
-
-# Infrastructure
 postgres_logger = PGLogger()
-hil_store = HILStore()
 
-# Strengthen system prompt so the model won't "try another args"
+mcp_client = MultiServerMCPClient({
+    "amap": {"url": os.getenv("AMAP_MCP_URL"), "transport": "sse"}
+})
+
 SYSTEM_PROMPT = SystemMessage(
-    content=(
-        "You are an AI assistant capable of using external tools.\n"
-        "IMPORTANT HIL RULE:\n"
-        "If any tool returns a message starting with 'HIL_PENDING_JSON:',\n"
-        "you must STOP immediately and reply to the user with the pending_id exactly.\n"
-        "Do NOT call any other tools and do NOT retry with different arguments.\n"
-    )
+    content="You are an AI assistant capable of using external tools. Answer concisely."
 )
 
-# Schemas
+GLOBAL_AGENT = None
+
+
+# ==========================================
+# 1. 组装全局单例 Agent (纯官方中间件)
+# ==========================================
+@app.on_event("startup")
+async def load_tools():
+    global GLOBAL_AGENT
+    base_tools = await mcp_client.get_tools()
+
+    # 动态为所有 MCP 工具生成官方要求的 interrupt_on 拦截配置
+    interrupt_on = {}
+    for tool in base_tools:
+        interrupt_on[tool.name] = {
+            "allowed_decisions": ["approve", "reject", "edit"],
+            "description": f"Calling {tool.name} requires human approval."
+        }
+
+    # 初始化官方的 HIL 中间件
+    official_hitl_middleware = HumanInTheLoopMiddleware(
+        interrupt_on=interrupt_on,
+        description_prefix="[HIL INTERCEPT]"
+    )
+
+    redis_saver_cm = AsyncRedisSaver.from_conn_string(os.getenv("REDIS_URL", "redis://localhost:6379"))
+    redis_saver = await redis_saver_cm.__aenter__()
+
+    # 注入官方中间件构建 Agent
+    GLOBAL_AGENT = create_agent(
+        model=llm,
+        tools=base_tools,  # 原生工具，不套任何马甲
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[official_hitl_middleware],  # 纯官方配置
+        checkpointer=redis_saver
+    )
+
+
+# ==========================================
+# 2. FastAPI 极简路由接口
+# ==========================================
 class ChatRequest(BaseModel):
     session_id: str
     message: str
 
 
-class ApprovalRequest(BaseModel):
-    pending_id: str
+# 恢复请求：不再需要 pending_id，只要 session_id 和 决策(approve/reject)
+class ResumeRequest(BaseModel):
+    session_id: str
+    decision: str = "approve"
 
 
-def _extract_hil_pending_from_messages(messages) -> dict | None:
-    """
-    Find the most recent tool output containing our pending marker, and parse it.
-    We do NOT rely on the model to behave perfectly; we detect it ourselves.
-    """
-    for m in reversed(messages):
-        for m in reversed(messages):
-            content = getattr(m, "content", None)
-
-            if isinstance(content, str) and content.startswith(HIL_PENDING_PREFIX):
-                raw = content[len(HIL_PENDING_PREFIX):]
-                return json.loads(raw)
-            if getattr(m, "type", None) == "tool":
-                break
-
-        return None
-
-
-# Agent Factory (per session)
-def build_agent_for_session(session_id: str):
-    wrapped_tools = [
-        HILToolWrapper(
-            inner_tool=tool,
-            hil=hil_store,
-            session_id=session_id,
-            controlled=True
-        )
-        for tool in BASE_TOOLS
-    ]
-
-    agent = create_react_agent(
-        model=llm,
-        tools=wrapped_tools,
-        prompt=SYSTEM_PROMPT,
-        checkpointer=redis_saver,
-    )
-    return agent
-
-
-# Chat Endpoint
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    agent = build_agent_for_session(request.session_id)
+    config = {"configurable": {"thread_id": request.session_id}}
 
-    config = {
-        "configurable": {
-            "thread_id": request.session_id
-        }
-    }
-
-    result = await agent.ainvoke(
+    # 让引擎去跑，官方中间件会在后台自动拦截
+    result = await GLOBAL_AGENT.ainvoke(
         {"messages": [HumanMessage(content=request.message)]},
-        config=config,
+        config=config
     )
 
-    # 1) If any tool emitted a pending marker, return a structured response
-    pending = _extract_hil_pending_from_messages(result.get("messages", []))
-    print("pending:",pending)
-    if pending:
-        # Optional: log pending response as well (helps audit)
-        postgres_logger.log_chat(
-            session_id=request.session_id,
-            user_message=request.message,
-            agent_response=f"[HIL_PENDING] pending_id={pending.get('pending_id')}",
-            meta={"source": "fastapi_endpoint", "hil": pending},
-        )
+    # 官方中间件挂起时，会把拦截信息放在 "__interrupt__" 数组里
+    if "__interrupt__" in result:
+        # 提取官方的数据结构并直接返回
+        hitl_req = result["__interrupt__"][0]
+        action_requests = hitl_req.value.get("action_requests", [])
+
         return {
-            "session_id": request.session_id,
             "status": "PENDING",
-            **pending,
+            "session_id": request.session_id,
+            "pending_actions": action_requests  # 里面包含了要调用的 tool_name 和 args
         }
 
-    # 2) Otherwise normal final response
+    # 如果没被拦截，说明可以直接返回回答
     final_response = result["messages"][-1].content
+    postgres_logger.log_chat(request.session_id, request.message, final_response, meta={"source": "chat"})
 
-    postgres_logger.log_chat(
-        session_id=request.session_id,
-        user_message=request.message,
-        agent_response=final_response,
-        meta={"source": "fastapi_endpoint"}
-    )
-
-    return {
-        "session_id": request.session_id,
-        "status": "OK",
-        "response": final_response
-    }
+    return {"status": "OK", "response": final_response}
 
 
-# HIL Approval Endpoint (approve only)
-@app.post("/hil/approve")
-async def approve_tool(request: ApprovalRequest):
-    approved = hil_store.approve(
-        request.pending_id,
-        ttl_seconds=3600
-    )
-    return {
-        "pending_id": request.pending_id,
-        "approved": approved
-    }
-
-
-# HIL Resume Endpoint (approve + resume)
 @app.post("/hil/resume")
-async def resume_after_approval(request: ApprovalRequest):
-    """
-    Approve the pending tool call, then resume agent execution from checkpoint.
-    No need to ask the same question again.
-    """
-    approved = hil_store.approve(request.pending_id, ttl_seconds=3600)
-    if not approved:
-        return {"status": "ERROR", "error": "Invalid pending_id"}
+async def resume_after_approval(request: ResumeRequest):
+    config = {"configurable": {"thread_id": request.session_id}}
 
-    pending = hil_store.get_pending(request.pending_id)
-    if not pending:
-        return {"status": "ERROR", "error": "Pending payload missing/expired"}
+    # 1. 探查当前 Checkpoint，看大模型挂起了几个工具请求
+    state = await GLOBAL_AGENT.aget_state(config)
 
-    session_id = pending["session_id"]
-    agent = build_agent_for_session(session_id)
-    print(approved)
-    config = {
-        "configurable": {
-            "thread_id": session_id
+    if not (state.tasks and state.tasks[0].interrupts):
+        return {"status": "ERROR", "error": "当前 Session 没有正在等待审批的工具。"}
+
+    # 取出官方中间件需要的结构
+    interrupt_val = state.tasks[0].interrupts[0].value
+    action_requests = interrupt_val.get("action_requests", [])
+
+    # 2. 构造官方中间件要求的 decisions 列表 (如果并发调了多个工具，要全部同意)
+    decisions = [{"type": request.decision}] * len(action_requests)
+
+    # 3. 🚨 核心魔法：使用原生的 Command(resume=...) 注入决策，唤醒图引擎！
+    result = await GLOBAL_AGENT.ainvoke(
+        Command(resume={"decisions": decisions}),
+        config=config
+    )
+
+    # 4. 再次防备连续调用下一个工具被挂起
+    if "__interrupt__" in result:
+        hitl_req = result["__interrupt__"][0]
+        return {
+            "status": "PENDING",
+            "session_id": request.session_id,
+            "pending_actions": hitl_req.value.get("action_requests", [])
         }
-    }
 
-    # Key idea: do NOT add a new HumanMessage; let LangGraph resume from checkpoint
-    result = await agent.ainvoke(
-        {"messages": []},
-        config=config,
-    )
+    # 正常输出大模型的最终总结
     final_response = result["messages"][-1].content
-    print(final_response)
-    # # If it still hits another pending (e.g., another tool in the plan), return it
-    # next_pending = _extract_hil_pending_from_messages(result.get("messages", []))
-    # print(next_pending)
-    # if next_pending:
-    #     return {
-    #         "session_id": session_id,
-    #         "status": "PENDING",
-    #         **next_pending,
-    #     }
-    #
-    # final_response = result["messages"][-1].content
-    # print(final_response)
-    postgres_logger.log_chat(
-        session_id=session_id,
-        user_message=f"[HIL_RESUME] pending_id={request.pending_id}",
-        agent_response=final_response,
-        meta={"source": "hil_resume_endpoint", "approved_pending": pending}
-    )
+    postgres_logger.log_chat(request.session_id, f"[HIL_RESUME] {request.decision}", final_response,
+                             meta={"source": "resume"})
 
-    return {
-        "session_id": session_id,
-        "status": "OK",
-        "response": final_response
-    }
-
-# Retrieve Pending HIL State
-@app.get("/hil/pending/{pending_id}")
-async def get_pending_state(pending_id: str):
-    pending_data = hil_store.get_pending(pending_id)
-    return {
-        "pending": pending_data
-    }
+    return {"status": "OK", "response": final_response}
