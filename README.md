@@ -1,4 +1,4 @@
-\section*{AI Travel Planner}
+### AI Travel Planner
 
 An AI-powered travel planning system that generates personalized multi-day travel itineraries based on user preferences.
 
