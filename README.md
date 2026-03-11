@@ -35,15 +35,21 @@ Export travel plans as image or PDF
 #### Frontend
 
 React
+
 TypeScript
+
 Vite
+
 Ant Design
 
 #### Backend
 
 FastAPI
+
 Python
 #### Agent
 LangGraph
+
 MCP
+
 Human in the Loop
