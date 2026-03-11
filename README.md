@@ -1,14 +1,14 @@
-### AI Travel Planner
+## AI Travel Planner
 
 An AI-powered travel planning system that generates personalized multi-day travel itineraries based on user preferences.
 
 Users can enter a destination, travel dates, and preferences, and the system automatically generates a structured travel plan including attractions, meals, hotels, and daily schedules.
 
-\subsection*{Demo}
+### {Demo}
 
 ![alt text](image.png)
 
-Example flow:
+### Example flow:
 
 Enter destination city
 
@@ -18,7 +18,7 @@ Choose travel preferences
 
 Generate a personalized trip itinerary
 
-Features
+### Features
 
 AI-generated travel itineraries
 
@@ -30,9 +30,9 @@ Interactive frontend interface
 
 Export travel plans as image or PDF
 
-Tech Stack
+### Tech Stack
 
-Frontend
+#### Frontend
 
 React
 
@@ -42,7 +42,7 @@ Vite
 
 Ant Design
 
-Backend
+#### Backend
 
 FastAPI
 
