@@ -4,7 +4,7 @@ An AI-powered travel planning system that generates personalized multi-day trave
 
 Users can enter a destination, travel dates, and preferences, and the system automatically generates a structured travel plan including attractions, meals, hotels, and daily schedules.
 
-### {Demo}
+### Demo
 
 ![alt text](image.png)
 
