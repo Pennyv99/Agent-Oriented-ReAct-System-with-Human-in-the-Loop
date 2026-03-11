@@ -1,2 +1,51 @@
-# Agent-Oriented-ReAct-System-with-Human-in-the-Loop
-Deployed a stateful ReAct agent service on AWS EC2, integrating FastAPI, LangGraph, PostgreSQL, and Redis to support concurrent users and persistent agent memory.  Implemented Human-in-the-Loop (HIL)–governed tool orchestration, integrating Function Calling and MCP Servers (AMap LBS) with Redis-backed session recovery
+\section*{AI Travel Planner}
+
+An AI-powered travel planning system that generates personalized multi-day travel itineraries based on user preferences.
+
+Users can enter a destination, travel dates, and preferences, and the system automatically generates a structured travel plan including attractions, meals, hotels, and daily schedules.
+
+\subsection*{Demo}
+
+![alt text](image.png)
+
+Example flow:
+
+Enter destination city
+
+Select travel dates
+
+Choose travel preferences
+
+Generate a personalized trip itinerary
+
+Features
+
+AI-generated travel itineraries
+
+Multi-day trip planning
+
+Attraction, restaurant, and hotel recommendations
+
+Interactive frontend interface
+
+Export travel plans as image or PDF
+
+Tech Stack
+
+Frontend
+
+React
+
+TypeScript
+
+Vite
+
+Ant Design
+
+Backend
+
+FastAPI
+
+Python
+
+LLM APIs
