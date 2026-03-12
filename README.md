@@ -6,7 +6,7 @@ Users can enter a destination, travel dates, and preferences, and the system aut
 
 ### Demo
 
-![alt text](image.png)
+![alt text](![alt text](travel.gif))
 
 ### Example flow:
 
