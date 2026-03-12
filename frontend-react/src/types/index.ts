@@ -110,5 +110,9 @@ export interface TripFormData {
   preferences: string[]
 
   extra_requirements?: string
-
+}
+export interface TripPlanResponse {
+  success: boolean
+  message: string
+  data: TripPlan
 }

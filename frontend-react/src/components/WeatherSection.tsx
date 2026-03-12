@@ -12,7 +12,7 @@ export default function WeatherSection({weather}:any){
 
           <Col span={8} key={index}>
 
-            <Card size="small">
+            <Card className="section-card weather-bg" size="small">
 
               <p>{w.date}</p>
 

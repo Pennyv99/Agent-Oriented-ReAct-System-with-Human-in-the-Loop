@@ -1,57 +1,57 @@
-import { Collapse, Card, Input } from "antd"
+import {Collapse, Card, Input} from "antd"
 
-export default function DayCollapse({days,editMode}:any){
+export default function DayCollapse({days, editMode}: any) {
 
-  return(
+    return (
 
-    <Card title="📅 Daily Plan">
+        <Card title="📅 Daily Plan">
 
-      <Collapse accordion>
+            <Collapse accordion >
 
-        {days.map((day:any,index:number)=>(
+                {(days || []).map((day: any, index: number) => (
 
-          <Collapse.Panel
-            header={`Day ${index+1} ${day.date}`}
-            key={index}
-          >
+                    <Collapse.Panel className="section-card plan-bg"
+                        header={`Day ${index + 1} ${day.date}`}
+                        key={index}
+                    >
 
-            <p>{day.description}</p>
+                        <p>{day.description}</p>
 
-            {day.attractions.map((attr:any,i:number)=>(
+                        {day.attractions.map((attr: any, i: number) => (
 
-              <Card
-                key={i}
-                size="small"
-                title={attr.name}
-                style={{marginBottom:10}}
-              >
+                            <Card
+                                key={i}
+                                size="small"
+                                title={attr.name}
+                                style={{marginBottom: 10}}
+                            >
 
-                {editMode ? (
+                                {editMode ? (
 
-                  <>
-                    <Input defaultValue={attr.address}/>
-                    <Input defaultValue={attr.description}/>
-                  </>
+                                    <>
+                                        <Input defaultValue={attr.address}/>
+                                        <Input defaultValue={attr.description}/>
+                                    </>
 
-                ):(
-                  <>
-                    <p>{attr.address}</p>
-                    <p>{attr.description}</p>
-                  </>
-                )}
+                                ) : (
+                                    <>
+                                        <p>{attr.address}</p>
+                                        <p>{attr.description}</p>
+                                    </>
+                                )}
 
-              </Card>
+                            </Card>
 
-            ))}
+                        ))}
 
-          </Collapse.Panel>
+                    </Collapse.Panel>
 
-        ))}
+                ))}
 
-      </Collapse>
+            </Collapse>
 
-    </Card>
+        </Card>
 
-  )
+    )
 
 }

@@ -1,44 +1,60 @@
 import { Card } from "antd"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import AMapLoader from "@amap/amap-jsapi-loader"
 
-export default function MapCard({plan}:any){
+export default function MapCard({ plan }: any) {
 
-  useEffect(()=>{
+  const mapRef = useRef<any>(null)
+  const mapInstance = useRef<any>(null)
+
+  useEffect(() => {
+
+    if (!plan) return
 
     initMap()
 
-  },[])
+  }, [plan])
 
-  const initMap = async()=>{
+  const initMap = async () => {
 
     const AMap = await AMapLoader.load({
-
       key: import.meta.env.VITE_AMAP_WEB_JS_KEY,
-      version:"2.0"
-
+      version: "2.0"
     })
 
-    const map = new AMap.Map("map-container",{
-      zoom:12
-    })
 
-    plan.days.forEach((day:any)=>{
+    if (!mapInstance.current) {
 
-      day.attractions.forEach((attr:any)=>{
+      mapInstance.current = new AMap.Map(mapRef.current, {
+        zoom: 12
+      })
 
-        if(attr.location){
+    }
 
-          new AMap.Marker({
+    const map = mapInstance.current
 
-            map,
-            position:[
+    const markers: any[] = []
+
+    plan.days.forEach((day: any) => {
+
+      day.attractions.forEach((attr: any, index: number) => {
+
+        if (attr.location) {
+
+          const marker = new AMap.Marker({
+            position: [
               attr.location.longitude,
               attr.location.latitude
             ],
-            title:attr.name
-
+            title: attr.name,
+            label: {
+              content: `${index + 1}`,
+              direction: "top"
+            }
           })
+
+          map.add(marker)
+          markers.push(marker)
 
         }
 
@@ -46,15 +62,19 @@ export default function MapCard({plan}:any){
 
     })
 
+    if (markers.length > 0) {
+      map.setFitView(markers)
+    }
+
   }
 
-  return(
+  return (
 
-    <Card title="📍 Map">
+    <Card className="section-card map-bg" title="📍 Map">
 
       <div
-        id="map-container"
-        style={{height:400}}
+        ref={mapRef}
+        style={{ height: 400, width: "100%" }}
       />
 
     </Card>

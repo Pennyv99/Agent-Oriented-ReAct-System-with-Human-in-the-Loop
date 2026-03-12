@@ -4,7 +4,68 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: #ece9ec;
+  background: #e7f0fa;
+}
+.section-card{
+  border-radius:12px;
+  padding:20px;
+  margin-bottom:20px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.05);
+}
+.overview-bg{
+  background:#ffffff;
+}
+
+.budget-bg{
+  background:#fff9e6;
+}
+
+.map-bg{
+  background: #fdfdfd;
+}
+
+.plan-bg{
+  background: #f8f7fd;
+}
+
+.weather-bg{
+  background: rgba(247, 244, 251, 0.69);
+}
+.ant-card-head-title{
+  font-size:18px;
+  font-weight:600;
+}
+.budget-card{
+  padding:16px;
+  border-radius:10px;
+  text-align:center;
+  font-weight:500;
+}
+
+.budget-title{
+  font-size:14px;
+  opacity:0.8;
+}
+
+.budget-value{
+  font-size:24px;
+  font-weight:700;
+  margin-top:6px;
+}
+.attractions{
+  background:#fff7e6;
+}
+
+.hotels{
+  background:#e6f7ff;
+}
+
+.meals{
+  background:#fff0f6;
+}
+
+.transport{
+  background:#f6ffed;
 }
 @keyframes float {
   0% {

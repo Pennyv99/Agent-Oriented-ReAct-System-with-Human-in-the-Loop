@@ -5,7 +5,7 @@ export default function OverviewCard({plan}:{plan:TripPlan}){
 
   return(
 
-    <Card title={`${plan.city} Travel Plan`}>
+    <Card className="section-card overview-bg" title={`${plan.city} Travel Plan`}>
 
       <p>
         📅 {plan.start_date} - {plan.end_date}

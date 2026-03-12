@@ -7,7 +7,7 @@ from hello_agents.tools import MCPTool
 from ..services.llm_service import get_llm
 from ..models.schemas import TripRequest, TripPlan, DayPlan, Attraction, Meal, WeatherInfo, Location, Hotel
 from ..config import get_settings
-
+import asyncio
 # ============ Agent提示词 ============
 
 ATTRACTION_AGENT_PROMPT = """You are an expert in scenic spot search. Your task is to search for suitable scenic spots based on the city and user preferences.
@@ -16,42 +16,62 @@ ATTRACTION_AGENT_PROMPT = """You are an expert in scenic spot search. Your task 
 You must use tools to search for attractions! Do not fabricate attraction information!
 
 **Tool Call Format:**
-When using the maps_text_search tool, you must strictly follow the format below:
-`[TOOL_CALL:amap_maps_text_search:keywords=attraction_keyword,city=city_name]`
+When using the maps_mcp_text_search tool, you must strictly follow the format below:
+`[TOOL_CALL:amap_mcp_maps_text_search:keywords=attraction_keyword,city=city_name]`
 
 **Examples:**
 User: "Search historical and cultural attractions in Beijing"
-Your response: [TOOL_CALL:amap_maps_text_search:keywords=history culture,city=Beijing]
+Your response: [TOOL_CALL:amap_mcp_maps_text_search:keywords=history culture,city=Beijing]
 
 User: "Search parks in Shanghai"
-Your response: [TOOL_CALL:amap_maps_text_search:keywords=park,city=Shanghai]
+Your response: [TOOL_CALL:amap_mcp_maps_text_search:keywords=park,city=Shanghai]
 
 **Notes:**
 1. You must use the tool, do not answer directly
 2. The format must be completely correct, including brackets and colons
 3. Parameters must be separated by commas
 """
+WEATHER_AGENT_PROMPT = """
+You are an expert in weather inquiries. Your task is to check the weather information of the specified city.
 
-WEATHER_AGENT_PROMPT = """You are an expert in weather inquiries. Your task is to check the weather information of the specified city.
+You MUST use the tool `amap_mcp_maps_weather` to get weather information.
 
-**Important:**
-You must use tools to query weather! Do not fabricate weather information!
+Tool call format:
 
-**Tool Call Format:**
-When using the maps_weather tool, you must strictly follow the format below:
-`[TOOL_CALL:amap_maps_weather:city=city_name]`
+[TOOL_CALL:amap_mcp_maps_weather:city=city_name]
 
-**Examples:**
-User: "Check the weather in Beijing"
-Your response: [TOOL_CALL:amap_maps_weather:city=Beijing]
+Rules:
+- Always call the tool amap_mcp_maps_weather
+- Do not generate fake weather data
+- Do not answer directly
+- Always return the tool call
 
-User: "What is the weather in Shanghai?"
-Your response: [TOOL_CALL:amap_maps_weather:city=Shanghai]
+Example:
 
-**Notes:**
-1. You must use the tool, do not answer directly
-2. The format must be completely correct, including brackets and colons
+User: What is the weather in Shanghai?
+Assistant:
+[TOOL_CALL:amap_mcp_maps_weather:city=Shanghai]
 """
+# WEATHER_AGENT_PROMPT = """You are an expert in weather inquiries. Your task is to check the weather information of the specified city.
+#
+# **Important:**
+# You must use tools to query weather! Do not fabricate weather information!
+#
+# **Tool Call Format:**
+# When using the maps_weather tool, you must strictly follow the format below:
+# `[TOOL_CALL:amap_maps_weather:city=city_name]`
+#
+# **Examples:**
+# User: "Check the weather in Beijing"
+# Your response: [TOOL_CALL:amap_maps_weather:city=Beijing]
+#
+# User: "What is the weather in Shanghai?"
+# Your response: [TOOL_CALL:amap_maps_weather:city=Shanghai]
+#
+# **Notes:**
+# 1. You must use the tool, do not answer directly
+# 2. The format must be completely correct, including brackets and colons
+# """
 
 HOTEL_AGENT_PROMPT = """You are a hotel recommendation expert. Your task is to recommend suitable hotels based on the location of the city and scenic spots.
 
@@ -60,11 +80,11 @@ You must use tools to search for hotels! Do not fabricate hotel information!
 
 **Tool Call Format:**
 When using the maps_text_search tool to search hotels, you must strictly follow the format below:
-`[TOOL_CALL:amap_maps_text_search:keywords=hotel,city=city_name]`
+`[TOOL_CALL:amap_mcp_maps_text_search:keywords=hotel,city=city_name]`
 
 **Example:**
 User: "Search hotels in Beijing"
-Your response: [TOOL_CALL:amap_maps_text_search:keywords=hotel,city=Beijing]
+Your response: [TOOL_CALL:amap_mcp_maps_text_search:keywords=hotel,city=Beijing]
 
 **Notes:**
 1. You must use the tool, do not answer directly
@@ -74,7 +94,7 @@ Your response: [TOOL_CALL:amap_maps_text_search:keywords=hotel,city=Beijing]
 
 PLANNER_AGENT_PROMPT = """You are an expert in itinerary planning. Your task is to generate a detailed travel plan based on the information of scenic spots and weather conditions.
 
-请严格按照以下JSON格式返回旅行计划:
+Please strictly return the travel plan in the following JSON format:
 ```json
 {
   "city": "City Name",
@@ -149,6 +169,7 @@ PLANNER_AGENT_PROMPT = """You are an expert in itinerary planning. Your task is 
    - Estimated meal cost (estimated_cost)
    - Estimated hotel cost (estimated_cost)
    - Budget summary (budget) including total costs
+8. ALL text must be in English.
 """
 
 
@@ -165,14 +186,23 @@ class MultiAgentTripPlanner:
 
             # 创建共享的MCP工具(只创建一次)
             print("  - Create a shared MCP tool...")
+            # self.amap_tool = MCPTool(
+            #     name="amap_maps",
+            #     description="amap maps serice",
+            #     server_command=["uvx", "amap-mcp-server"],
+            #     env={"AMAP_MAPS_API_KEY": settings.amap_api_key},
+            # )
             self.amap_tool = MCPTool(
-                name="amap",
-                description="amap maps serice",
+                name="amap_mcp",
                 server_command=["uvx", "amap-mcp-server"],
                 env={"AMAP_MAPS_API_KEY": settings.amap_api_key},
                 auto_expand=True
             )
-
+            self.amap_tool.expandable = True
+            # asyncio.create_task(self.amap_tool._discover_tools())
+            #
+            # print("Available MCP tools:", self.amap_tool._available_tools)
+            # print("Available MCP tools:", self.amap_tool.available_tools)
             # 创建景点搜索Agent
             print("  - Create a scenic spot search Agent...")
             self.attraction_agent = SimpleAgent(
@@ -190,6 +220,7 @@ class MultiAgentTripPlanner:
                 system_prompt=WEATHER_AGENT_PROMPT
             )
             self.weather_agent.add_tool(self.amap_tool)
+            print("Weather tools:", self.weather_agent.list_tools())
 
             # 创建酒店推荐Agent
             print("  - 创建酒店推荐Agent...")
@@ -218,7 +249,7 @@ class MultiAgentTripPlanner:
             import traceback
             traceback.print_exc()
             raise
-    
+
     def plan_trip(self, request: TripRequest) -> TripPlan:
         """
         使用多智能体协作生成旅行计划
@@ -336,6 +367,7 @@ class MultiAgentTripPlanner:
             旅行计划
         """
         try:
+            print(response)
             # 尝试从响应中提取JSON
             # 查找JSON代码块
             if "```json" in response:
