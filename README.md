@@ -1,12 +1,12 @@
 ## AI Travel Planner
 
-An AI-powered travel planning system that generates personalized multi-day travel itineraries based on user preferences.
+An multi-agent travel planning system that generates personalized multi-day travel itineraries based on user preferences.
 
 Users can enter a destination, travel dates, and preferences, and the system automatically generates a structured travel plan including attractions, meals, hotels, and daily schedules.
 
 ### Demo
 
-![alt text](![alt text](travel.gif))
+![alt text](travel.gif)
 
 ### Example flow:
 
@@ -20,7 +20,7 @@ Generate a personalized trip itinerary
 
 ### Features
 
-AI-generated travel itineraries
+multi-agent framework
 
 Multi-day trip planning
 
